@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mon Billet - Le Grand Rassemblement</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans text-gray-800">
+
+    <div class="max-w-md mx-auto bg-white min-h-screen shadow-lg flex flex-col justify-center p-6 text-center space-y-6">
+        
+        <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-2xl animate-bounce">
+            <i class="fa-solid fa-circle-check"></i>
+        </div>
+        
+        <div>
+            <h2 class="text-2xl font-black text-gray-800">Commande Confirmée !</h2>
+            <p class="text-xs text-red-500 font-bold mt-2 uppercase tracking-wide">⚠️ S'IL VOUS PLAÎT, FAITES UNE CAPTURE D'ÉCRAN DE CETTE PAGE MAINTENANT !</p>
+        </div>
+        
+        <div id="qrcode" class="flex justify-center p-4 bg-white border inline-block mx-auto rounded-xl shadow-sm"></div>
+        
+        <div class="bg-gray-50 p-4 rounded-xl text-left text-xs space-y-1 border">
+            <p><strong>Client :</strong> <span id="lbl-nom"></span></p>
+            <p><strong>Billet :</strong> <span id="lbl-billet"></span></p>
+            <p><strong>ID Unique :</strong> <span id="lbl-id" class="font-mono text-gray-400"></span></p>
+        </div>
+
+        <button onclick="ouvrirWhatsApp()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow text-sm transition">
+            <i class="fa-brands fa-whatsapp mr-2"></i>Ouvrir WhatsApp & Joindre ma Capture 📎
+        </button>
+
+        <a href="index.html" class="text-xs text-gray-400 hover:underline mt-4 block">Retourner à l'accueil</a>
+    </div>
+
+    <script>
+        const NUMERO_RECEPTION = "776729854";
+
+        // Récupération des informations stockées
+        const ticketId = localStorage.getItem('temp_ticket_id');
+        const nom = localStorage.getItem('temp_nom');
+        const tel = localStorage.getItem('temp_tel');
+        const billet = localStorage.getItem('temp_billet');
+        const total = localStorage.getItem('temp_total');
+
+        if (!ticketId) {
+            // Sécurité si tentative d'accès sans commande
+            window.location.href = "index.html";
+        }
+
+        // Remplissage du texte
+        document.getElementById('lbl-nom').innerText = nom;
+        document.getElementById('lbl-billet').innerText = billet;
+        document.getElementById('lbl-id').innerText = ticketId;
+
+        // Génération stricte du QR Code
+        const qrData = `✅ BILLET VALIDE\nID: ${ticketId}\nNom: ${nom}\nBillet: ${billet}`;
+        new QRCode(document.getElementById("qrcode"), {
+            text: qrData,
+            width: 160,
+            height: 160
+        });
+
+        // Construction du message WhatsApp automatique
+        const messageText = `Bonjour, je viens de réserver mon billet via le site.\n\n` +
+                             `*Détails :*\n` +
+                             `- ID Unique : ${ticketId}\n` +
+                             `- Nom : ${nom}\n` +
+                             `- Téléphone : ${tel}\n` +
+                             `- Commande : ${billet} (${total} FCFA)\n\n` +
+                             `Je vous joins ci-dessous la capture d'écran du paiement Wave pour confirmation.`;
+
+        function ouvrirWhatsApp() {
+            const whatsappUrl = `https://wa.me/${NUMERO_RECEPTION}?text=${encodeURIComponent(messageText)}`;
+            window.open(whatsappUrl, '_blank');
+        }
+    </script>
+</body>
+</html>
