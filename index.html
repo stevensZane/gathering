@@ -100,6 +100,7 @@
             <button onclick="relancerWhatsApp()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow text-sm">
                 <i class="fa-brands fa-whatsapp mr-2"></i>Ouvrir WhatsApp & Joindre ma Capture 📎
             </button>
+            <p class="text-[11px] text-gray-400">Si WhatsApp ne s'est pas ouvert automatiquement, appuyez sur le bouton ci-dessus.</p>
         </div>
 
         <div id="footer-bar" class="fixed bottom-0 max-w-md w-full p-4 border-t bg-white flex justify-between items-center z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
@@ -170,59 +171,80 @@
             return total;
         }
 
+        // ⚠️ FIX PRINCIPAL : window.open() est appelé en TOUT PREMIER, de façon
+        // synchrone, dans le clic direct de l'utilisateur. C'est obligatoire :
+        // dès qu'on ajoute un délai (setTimeout) ou du travail avant l'ouverture,
+        // les navigateurs mobiles (Chrome Android / Safari iOS) bloquent le popup
+        // silencieusement, sans aucune erreur visible. D'où le blocage constaté.
         function procederAuPaiement() {
-            const nom = document.getElementById('nom').value.trim();
-            const tel = document.getElementById('telephone').value.trim();
-            const type = document.querySelector('input[name="ticket_type"]:checked').value;
-            const total = calculerTotal();
-
-            if (!nom || !tel) {
-                alert("⚠️ Veuillez remplir votre nom et votre numéro WhatsApp.");
-                return;
-            }
-
-            // Blocage immédiat du bouton anti-double clic
             const btnValider = document.getElementById('btn-valider-paiement');
-            btnValider.disabled = true;
-            btnValider.innerText = "Chargement...";
 
-            const ticketId = "GR-" + Math.floor(100000 + Math.random() * 900000);
-            
-            // Une seule incrémentation enregistrée proprement
-            sauvegarderDansStats(total, quantite);
+            try {
+                const nom = document.getElementById('nom').value.trim();
+                const tel = document.getElementById('telephone').value.trim();
+                const type = document.querySelector('input[name="ticket_type"]:checked').value;
+                const total = calculerTotal();
 
-            // Génération du contenu textuel du QR Code
-            const qrData = `✅ BILLET VALIDE\nID: ${ticketId}\nNom: ${nom}\nBillet: ${type}\nQte: ${quantite}`;
-            
-            document.getElementById("qrcode").innerHTML = "";
-            new QRCode(document.getElementById("qrcode"), {
-                text: qrData,
-                width: 160,
-                height: 160
-            });
+                if (!nom || !tel) {
+                    alert("⚠️ Veuillez remplir votre nom et votre numéro WhatsApp.");
+                    return;
+                }
 
-            document.getElementById('lbl-nom').innerText = nom;
-            document.getElementById('lbl-billet').innerText = `${quantite}x ${type}`;
-            document.getElementById('lbl-id').innerText = ticketId;
+                btnValider.disabled = true;
+                btnValider.innerText = "Chargement...";
 
-            // Changement d'écran instantané
-            document.getElementById('zone-achat').classList.add('hidden');
-            document.getElementById('footer-bar').classList.add('hidden');
-            document.getElementById('zone-succes').classList.remove('hidden');
+                const ticketId = "GR-" + Math.floor(100000 + Math.random() * 900000);
 
-            // Texte envoyé automatiquement à l'organisateur
-            dernierMessageWhatsApp = `Bonjour, je viens de réserver mon billet via le site.\n\n` +
-                                     `*Détails du billet :*\n` +
-                                     `- ID Unique : ${ticketId}\n` +
-                                     `- Nom : ${nom}\n` +
-                                     `- Téléphone : ${tel}\n` +
-                                     `- Commande : ${quantite}x ${type} (${total} FCFA)\n\n` +
-                                     `Je vous joins ci-dessous la capture d'écran de mon paiement pour validation.`;
-            
-            // Déclenchement automatique de la redirection WhatsApp 800ms après la mise à jour visuelle
-            setTimeout(() => {
-                relancerWhatsApp();
-            }, 800);
+                dernierMessageWhatsApp = `Bonjour, je viens de réserver mon billet via le site.\n\n` +
+                                         `*Détails du billet :*\n` +
+                                         `- ID Unique : ${ticketId}\n` +
+                                         `- Nom : ${nom}\n` +
+                                         `- Téléphone : ${tel}\n` +
+                                         `- Commande : ${quantite}x ${type} (${total} FCFA)\n\n` +
+                                         `Je vous joins ci-dessous la capture d'écran de mon paiement pour validation.`;
+
+                // Ouverture WhatsApp IMMÉDIATE (aucun await/setTimeout avant ceci)
+                const nouvelOnglet = window.open(
+                    `https://wa.me/${NUMERO_RECEPTION}?text=${encodeURIComponent(dernierMessageWhatsApp)}`,
+                    '_blank'
+                );
+
+                // Tout le reste (stats, QR, changement d'écran) peut se faire après
+                sauvegarderDansStats(total, quantite);
+
+                const qrData = `✅ BILLET VALIDE\nID: ${ticketId}\nNom: ${nom}\nBillet: ${type}\nQte: ${quantite}`;
+                try {
+                    document.getElementById("qrcode").innerHTML = "";
+                    new QRCode(document.getElementById("qrcode"), {
+                        text: qrData,
+                        width: 160,
+                        height: 160
+                    });
+                } catch (qrErr) {
+                    console.warn("Génération QR impossible :", qrErr);
+                    document.getElementById("qrcode").innerHTML = "<p class='text-xs text-red-500 p-4'>QR indisponible, mais votre commande est enregistrée.</p>";
+                }
+
+                document.getElementById('lbl-nom').innerText = nom;
+                document.getElementById('lbl-billet').innerText = `${quantite}x ${type}`;
+                document.getElementById('lbl-id').innerText = ticketId;
+
+                document.getElementById('zone-achat').classList.add('hidden');
+                document.getElementById('footer-bar').classList.add('hidden');
+                document.getElementById('zone-succes').classList.remove('hidden');
+
+                // Si le popup a quand même été bloqué (rare une fois appelé en direct),
+                // on prévient l'utilisateur qu'il peut cliquer sur le bouton de secours.
+                if (!nouvelOnglet || nouvelOnglet.closed || typeof nouvelOnglet.closed === 'undefined') {
+                    console.warn("Le popup WhatsApp a peut-être été bloqué par le navigateur.");
+                }
+
+            } catch (err) {
+                console.error("Erreur lors du paiement :", err);
+                alert("❌ Une erreur est survenue : " + err.message + "\nVeuillez réessayer ou contacter l'organisateur.");
+                btnValider.disabled = false;
+                btnValider.innerText = "Valider & Recevoir mon QR Billet";
+            }
         }
 
         function relancerWhatsApp() {
@@ -231,11 +253,14 @@
         }
 
         function sauvegarderDansStats(montant, qte) {
-            let totalArgent = parseInt(localStorage.getItem('stat_argent') || "0");
-            let totalTickets = parseInt(localStorage.getItem('stat_tickets') || "0");
-
-            localStorage.setItem('stat_argent', totalArgent + montant);
-            localStorage.setItem('stat_tickets', totalTickets + qte);
+            try {
+                let totalArgent = parseInt(localStorage.getItem('stat_argent') || "0");
+                let totalTickets = parseInt(localStorage.getItem('stat_tickets') || "0");
+                localStorage.setItem('stat_argent', totalArgent + montant);
+                localStorage.setItem('stat_tickets', totalTickets + qte);
+            } catch (e) {
+                console.warn("localStorage indisponible :", e);
+            }
         }
 
         function ouvrirAdminSecurise() {
