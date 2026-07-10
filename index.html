@@ -7,7 +7,6 @@
     <link rel="icon" type="image/png" href="https://cdn-icons-png.flaticon.com/512/1942/1942007.png">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; }
@@ -212,18 +211,7 @@
                 // Tout le reste (stats, QR, changement d'écran) peut se faire après
                 sauvegarderDansStats(total, quantite);
 
-                const qrData = `✅ BILLET VALIDE\nID: ${ticketId}\nNom: ${nom}\nBillet: ${type}\nQte: ${quantite}`;
-                try {
-                    document.getElementById("qrcode").innerHTML = "";
-                    new QRCode(document.getElementById("qrcode"), {
-                        text: qrData,
-                        width: 160,
-                        height: 160
-                    });
-                } catch (qrErr) {
-                    console.warn("Génération QR impossible :", qrErr);
-                    document.getElementById("qrcode").innerHTML = "<p class='text-xs text-red-500 p-4'>QR indisponible, mais votre commande est enregistrée.</p>";
-                }
+                genererQRCode(ticketId, nom, type, quantite);
 
                 document.getElementById('lbl-nom').innerText = nom;
                 document.getElementById('lbl-billet').innerText = `${quantite}x ${type}`;
@@ -245,6 +233,20 @@
                 btnValider.disabled = false;
                 btnValider.innerText = "Valider & Recevoir mon QR Billet";
             }
+        }
+
+        // Génération du QR code via une API image externe (api.qrserver.com).
+        // Beaucoup plus fiable qu'une librairie JS locale : pas de canvas requis,
+        // pas de dépendance qui peut planter silencieusement sur mobile.
+        function genererQRCode(ticketId, nom, type, qte) {
+            const qrData = `BILLET VALIDE | ID: ${ticketId} | Nom: ${nom} | Billet: ${type} | Qte: ${qte}`;
+            const zoneQr = document.getElementById("qrcode");
+            const urlQr = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=8&data=${encodeURIComponent(qrData)}`;
+
+            zoneQr.innerHTML = `
+                <img src="${urlQr}" alt="QR Code billet" width="180" height="180"
+                     onerror="this.parentElement.innerHTML='<p class=&quot;text-xs text-red-500 p-4&quot;>QR indisponible (pas de connexion), mais votre commande est bien enregistrée : ID ${ticketId}</p>'">
+            `;
         }
 
         function relancerWhatsApp() {
