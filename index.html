@@ -292,8 +292,8 @@
                 const statusBoxOcr = document.getElementById('ocr-status');
                 const verifOk = statusBoxOcr && statusBoxOcr.dataset.ok === "1";
                 if (!verifOk) {
-                    const continuer = confirm("⚠️ Le montant et/ou le numéro Wave n'ont pas été détectés clairement sur votre capture. Voulez-vous valider quand même ? L'organisateur vérifiera manuellement.");
-                    if (!continuer) return;
+                    alert("❌ Le montant et/ou le numéro Wave n'ont pas été détectés clairement sur votre capture. Merci de vérifier votre capture d'écran (montant exact et numéro 77 672 98 54 bien visibles) avant de valider.");
+                    return;
                 }
 
                 btnValider.disabled = true;
