@@ -239,16 +239,60 @@
             lecteur.readAsDataURL(fichier);
         }
 
-        // Compare le texte extrait par OCR au montant attendu et au numéro Wave
+        // Extrait tous les montants d'un texte en gérant les séparateurs de milliers
+        // Wave utilise le "." comme séparateur de milliers (ex: "10.100F" = 10100 FCFA).
+        // Sans ce traitement, un simple retrait des caractères non-numériques casse
+        // les groupes de chiffres et empêche la détection du bon montant.
+        function extraireMontants(texte) {
+            const regexMontants = /\d{1,3}(?:[.,\s]\d{3})+|\d+/g;
+            const trouves = texte.match(regexMontants) || [];
+            return trouves.map(m => parseInt(m.replace(/[.,\s]/g, ''), 10)).filter(n => !isNaN(n));
+        }
+
+        // Cherche un montant précis situé juste après un mot-clé (ex: "montant reçu")
+        function extraireMontantApresMotCle(texte, motCleRegex) {
+            const regex = new RegExp(motCleRegex + "[^0-9]{0,15}([0-9][0-9.,\\s]{1,15})", "i");
+            const match = texte.match(regex);
+            if (!match) return null;
+            const nombre = parseInt(match[1].replace(/[.,\s]/g, ''), 10);
+            return isNaN(nombre) ? null : nombre;
+        }
+
+        // Cherche un identifiant de transaction (code alphanumérique Wave)
+        function extraireIdTransaction(texte) {
+            // 1) recherche ciblée juste après le libellé "ID de transaction"
+            const regexLibelle = /id\s*de\s*trans[a-zé]*[\s:\-]*([A-Za-z0-9_\s]{6,50})/i;
+            const matchLibelle = texte.match(regexLibelle);
+            if (matchLibelle) {
+                const code = matchLibelle[1].replace(/[^A-Za-z0-9_]/g, '');
+                if (code.length >= 8) return code;
+            }
+            // 2) repli : un code au format Wave classique "T_XXXXXXXX..."
+            const matchFormat = texte.match(/T_[A-Z0-9]{8,}/);
+            return matchFormat ? matchFormat[0] : null;
+        }
+
+        // Compare le texte extrait par OCR au montant attendu et au numéro Wave,
+        // puis vérifie en plus (renforcement) le "Montant reçu" exact et la présence
+        // d'un ID de transaction, pour éviter les faux positifs sur des captures
+        // trafiquées ou incomplètes. Les deux messages affichés à l'utilisateur
+        // restent inchangés ; les vérifications supplémentaires se font en arrière-plan.
         function analyserTexteOCR(texte, total, statusBox) {
             if (!statusBox) return;
 
-            const chiffresTexte = texte.replace(/[^0-9]/g, ' ');
-            const totalStr = String(total);
-            const montantTrouve = chiffresTexte.includes(totalStr);
+            const montantsTrouves = extraireMontants(texte);
+            const montantTrouve = montantsTrouves.includes(total);
 
+            const chiffresTexte = texte.replace(/[^0-9]/g, '');
             const numeroCible = "776729854";
-            const numeroTrouve = chiffresTexte.replace(/\s+/g, '').includes(numeroCible);
+            const numeroTrouve = chiffresTexte.includes(numeroCible);
+
+            // Vérifications supplémentaires (non affichées en détail, mais obligatoires)
+            const montantRecu = extraireMontantApresMotCle(texte, "montant\\s*re[çc]?u");
+            const montantRecuOk = montantRecu !== null && montantRecu === total;
+
+            const idTransaction = extraireIdTransaction(texte);
+            const idOk = idTransaction !== null;
 
             let html = "";
             html += montantTrouve
@@ -259,7 +303,7 @@
                 ? `<p class="text-emerald-700">✅ Numéro Wave (77 672 98 54) détecté sur la capture.</p>`
                 : `<p class="text-red-600">⚠️ Numéro Wave non détecté. Vérifiez que le paiement va bien au bon numéro.</p>`;
 
-            const ok = montantTrouve && numeroTrouve;
+            const ok = montantTrouve && numeroTrouve && montantRecuOk && idOk;
             statusBox.className = `p-3 rounded-xl border text-xs space-y-1 ${ok ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`;
             statusBox.innerHTML = html;
             statusBox.dataset.ok = ok ? "1" : "0";
@@ -292,7 +336,7 @@
                 const statusBoxOcr = document.getElementById('ocr-status');
                 const verifOk = statusBoxOcr && statusBoxOcr.dataset.ok === "1";
                 if (!verifOk) {
-                    alert("❌ Le montant et/ou le numéro Wave n'ont pas été détectés clairement sur votre capture. Merci de vérifier votre capture d'écran (montant exact et numéro 77 672 98 54 bien visibles) avant de valider.");
+                    alert("❌ Votre capture n'a pas pu être vérifiée automatiquement (montant, numéro Wave, montant reçu ou ID de transaction manquant ou illisible). Merci d'envoyer une capture complète et nette de la transaction Wave avant de valider.");
                     return;
                 }
 
