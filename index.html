@@ -179,6 +179,7 @@
         let html5QrcodeScanner = null;
         let captureBase64 = null;
         let texteOCRCache = null;
+        let idTransactionCourant = null;
 
         const CLÉ_ACCÈS_ADMIN = "bchristr2026";
 
@@ -208,6 +209,7 @@
 
             captureBase64 = null;
             texteOCRCache = null;
+            idTransactionCourant = null;
 
             const apercu = document.getElementById('apercu-capture');
             const imgApercu = document.getElementById('img-apercu');
@@ -244,27 +246,39 @@
         // Sans ce traitement, un simple retrait des caractères non-numériques casse
         // les groupes de chiffres et empêche la détection du bon montant.
         function extraireMontants(texte) {
-            const regexMontants = /\d{1,3}(?:[.,\s]\d{3})+|\d+/g;
+            const regexMontants = /\d{1,3}(?:[.,\u00A0 ]\d{3})+|\d+/g;
             const trouves = texte.match(regexMontants) || [];
-            return trouves.map(m => parseInt(m.replace(/[.,\s]/g, ''), 10)).filter(n => !isNaN(n));
+            return trouves.map(m => parseInt(m.replace(/[.,\u00A0 ]/g, ''), 10)).filter(n => !isNaN(n));
         }
 
         // Cherche un montant précis situé juste après un mot-clé (ex: "montant reçu")
         function extraireMontantApresMotCle(texte, motCleRegex) {
-            const regex = new RegExp(motCleRegex + "[^0-9]{0,15}([0-9][0-9.,\\s]{1,15})", "i");
+            const regex = new RegExp(motCleRegex + "[^0-9]{0,15}([0-9][0-9.,\\u00A0 ]{1,15})", "i");
             const match = texte.match(regex);
             if (!match) return null;
-            const nombre = parseInt(match[1].replace(/[.,\s]/g, ''), 10);
+            const nombre = parseInt(match[1].replace(/[.,\u00A0 ]/g, ''), 10);
             return isNaN(nombre) ? null : nombre;
         }
 
         // Cherche un identifiant de transaction (code alphanumérique Wave)
         function extraireIdTransaction(texte) {
             // 1) recherche ciblée juste après le libellé "ID de transaction"
-            const regexLibelle = /id\s*de\s*trans[a-zé]*[\s:\-]*([A-Za-z0-9_\s]{6,50})/i;
-            const matchLibelle = texte.match(regexLibelle);
-            if (matchLibelle) {
-                const code = matchLibelle[1].replace(/[^A-Za-z0-9_]/g, '');
+            const regexLibelle = /id\s*de\s*trans[a-zé]*/i;
+            const idxMatch = texte.match(regexLibelle);
+            if (idxMatch) {
+                const debut = idxMatch.index + idxMatch[0].length;
+                const zone = texte.slice(debut, debut + 80);
+                // L'ID Wave est en MAJUSCULES/chiffres/underscore (ex: T_ENHNIVYZHYAQNUHE),
+                // parfois coupé sur 2 lignes par l'OCR. On concatène les jetons de ce type
+                // et on s'arrête dès qu'un mot normal (en minuscules, ex: "In partnership...")
+                // apparaît, pour ne pas polluer l'ID avec du texte hors sujet.
+                const tokens = zone.split(/\s+/).filter(Boolean);
+                let code = "";
+                for (const tok of tokens) {
+                    if (/[a-z]/.test(tok)) break;
+                    const nettoye = tok.replace(/[^A-Za-z0-9_]/g, '');
+                    if (nettoye) code += nettoye;
+                }
                 if (code.length >= 8) return code;
             }
             // 2) repli : un code au format Wave classique "T_XXXXXXXX..."
@@ -272,11 +286,32 @@
             return matchFormat ? matchFormat[0] : null;
         }
 
+        // --- Gestion anti-doublons des IDs de transaction Wave (anti-réutilisation d'une capture) ---
+        function obtenirIdsTransactionsUtilisees() {
+            try {
+                return JSON.parse(localStorage.getItem('ids_transactions_utilisees') || "{}");
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function enregistrerIdTransactionUtilisee(id, nom) {
+            if (!id) return;
+            try {
+                const ids = obtenirIdsTransactionsUtilisees();
+                ids[id] = { nom: nom, date: new Date().toLocaleString('fr-FR') };
+                localStorage.setItem('ids_transactions_utilisees', JSON.stringify(ids));
+            } catch (e) {
+                console.warn("Impossible d'enregistrer l'ID de transaction :", e);
+            }
+        }
+
         // Compare le texte extrait par OCR au montant attendu et au numéro Wave,
-        // puis vérifie en plus (renforcement) le "Montant reçu" exact et la présence
-        // d'un ID de transaction, pour éviter les faux positifs sur des captures
-        // trafiquées ou incomplètes. Les deux messages affichés à l'utilisateur
-        // restent inchangés ; les vérifications supplémentaires se font en arrière-plan.
+        // puis vérifie en plus (renforcement) le "Montant reçu" exact, la présence
+        // d'un ID de transaction, ET que cet ID n'a jamais déjà servi (anti-réutilisation
+        // de la même capture pour générer plusieurs billets). Les deux messages affichés
+        // à l'utilisateur restent inchangés ; les vérifications supplémentaires se font
+        // en arrière-plan.
         function analyserTexteOCR(texte, total, statusBox) {
             if (!statusBox) return;
 
@@ -292,7 +327,11 @@
             const montantRecuOk = montantRecu !== null && montantRecu === total;
 
             const idTransaction = extraireIdTransaction(texte);
-            const idOk = idTransaction !== null;
+            idTransactionCourant = idTransaction;
+            const idsDejaUtilises = obtenirIdsTransactionsUtilisees();
+            const idDejaUtilise = idTransaction !== null && !!idsDejaUtilises[idTransaction];
+            const idOk = idTransaction !== null && !idDejaUtilise;
+            statusBox.dataset.idDejaUtilise = idDejaUtilise ? "1" : "0";
 
             let html = "";
             html += montantTrouve
@@ -336,7 +375,11 @@
                 const statusBoxOcr = document.getElementById('ocr-status');
                 const verifOk = statusBoxOcr && statusBoxOcr.dataset.ok === "1";
                 if (!verifOk) {
-                    alert("❌ Votre capture n'a pas pu être vérifiée automatiquement (montant, numéro Wave, montant reçu ou ID de transaction manquant ou illisible). Merci d'envoyer une capture complète et nette de la transaction Wave avant de valider.");
+                    if (statusBoxOcr && statusBoxOcr.dataset.idDejaUtilise === "1") {
+                        alert("❌ Cette transaction Wave a déjà été utilisée pour un autre billet. Chaque paiement ne peut servir qu'à un seul billet. Merci d'effectuer un nouveau paiement et d'envoyer la capture correspondante.");
+                    } else {
+                        alert("❌ Votre capture n'a pas pu être vérifiée automatiquement (montant, numéro Wave, montant reçu ou ID de transaction manquant ou illisible). Merci d'envoyer une capture complète et nette de la transaction Wave avant de valider.");
+                    }
                     return;
                 }
 
@@ -361,6 +404,7 @@
 
                 // Tout le reste (stats, QR, changement d'écran) peut se faire après
                 sauvegarderDansStats(total, quantite);
+                enregistrerIdTransactionUtilisee(idTransactionCourant, nom);
 
                 genererQRCode(ticketId, nom, type, quantite);
 
@@ -445,6 +489,7 @@
                 localStorage.removeItem('stat_argent');
                 localStorage.removeItem('stat_tickets');
                 localStorage.removeItem('billets_scannes');
+                localStorage.removeItem('ids_transactions_utilisees');
                 document.getElementById('stat-argent').innerText = "0 F";
                 document.getElementById('stat-tickets').innerText = "0";
                 mettreAJourCompteurScans();
