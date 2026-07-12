@@ -12,6 +12,12 @@
     <style>
         *, *::before, *::after { box-sizing: border-box; }
         body { margin: 0; padding: 0; }
+        @media print {
+            body * { visibility: hidden; }
+            #zone-succes, #zone-succes * { visibility: visible; }
+            #zone-succes { position: absolute; left: 0; top: 0; width: 100%; }
+            #zone-succes button { display: none !important; }
+        }
     </style>
 </head>
 <body class="bg-gray-100 font-sans text-gray-800">
@@ -119,6 +125,10 @@
                 <i class="fa-brands fa-whatsapp mr-2"></i>Ouvrir WhatsApp & Joindre ma Capture 📎
             </button>
             <p class="text-[11px] text-gray-400">Si WhatsApp ne s'est pas ouvert automatiquement, appuyez sur le bouton ci-dessus.</p>
+
+            <button onclick="telechargerPDF()" class="w-full bg-gray-700 hover:bg-gray-800 text-white font-bold py-3 rounded-xl shadow text-sm">
+                <i class="fa-solid fa-file-pdf mr-2"></i>Télécharger mon billet en PDF
+            </button>
         </div>
 
         <div id="footer-bar" class="fixed bottom-0 max-w-md w-full p-4 border-t bg-white flex justify-between items-center z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
@@ -447,6 +457,14 @@
         function relancerWhatsApp() {
             const whatsappUrl = `https://wa.me/${NUMERO_RECEPTION}?text=${encodeURIComponent(dernierMessageWhatsApp)}`;
             window.open(whatsappUrl, '_blank');
+        }
+
+        // Ouvre la boîte de dialogue d'impression du navigateur, préconfigurée (via CSS @media print)
+        // pour n'afficher que le billet (QR + infos). L'utilisateur choisit "Enregistrer en PDF"
+        // comme imprimante/destination pour le télécharger.
+        function telechargerPDF() {
+            alert("📄 Dans la fenêtre qui va s'ouvrir, choisissez 'Enregistrer au format PDF' (ou 'Imprimer > PDF') comme destination pour télécharger votre billet.");
+            window.print();
         }
 
         function sauvegarderDansStats(montant, qte) {
